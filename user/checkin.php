@@ -572,6 +572,54 @@ button:hover {
     font-size: 14px;
 }
 
+
+.camera-box {
+    margin-top: 10px;
+    padding: 18px;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 10px;
+}
+
+#camera {
+    width: 100%;
+    max-height: 420px;
+    object-fit: cover;
+    background: #000;
+    border-radius: 8px;
+}
+
+.camera-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.camera-btn {
+    margin-top: 0;
+}
+
+.camera-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.preview img {
+    width: 120px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid #444;
+}
+
 </style>
 
 </head>
@@ -637,20 +685,35 @@ button:hover {
             Before Cleaning / Use Photos
         </label>
 
+        <div class="camera-box">
+            <video id="camera" autoplay playsinline></video>
+            <canvas id="canvas" hidden></canvas>
+
+            <div class="camera-buttons">
+                <button type="button" id="startCamera" class="camera-btn">
+                    📷 Open Camera
+                </button>
+
+                <button type="button" id="takePhoto" class="camera-btn" disabled>
+                    📸 Take Photo
+                </button>
+            </div>
+
+            <div id="cameraStatus" class="note">
+                Camera only. You cannot browse or select existing photos.
+            </div>
+
+            <div id="preview" class="preview"></div>
+        </div>
+
         <input
             type="file"
+            id="beforePhotos"
             name="before_photos[]"
             accept="image/jpeg,image/png,image/webp"
             multiple
-            required
+            hidden
         >
-
-        <div class="note">
-
-            You can select multiple photos.
-            Maximum 10 photos, 5 MB each.
-
-        </div>
 
 
         <label>
@@ -682,6 +745,131 @@ button:hover {
 </div>
 
 </div>
+
+
+<script>
+(function () {
+    const video = document.getElementById("camera");
+    const canvas = document.getElementById("canvas");
+    const startButton = document.getElementById("startCamera");
+    const takeButton = document.getElementById("takePhoto");
+    const fileInput = document.getElementById("beforePhotos");
+    const preview = document.getElementById("preview");
+    const status = document.getElementById("cameraStatus");
+    const form = document.querySelector("form");
+
+    let stream = null;
+    const capturedPhotos = [];
+
+    async function startCamera() {
+        try {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: "environment" } },
+                audio: false
+            });
+
+            video.srcObject = stream;
+            takeButton.disabled = false;
+            status.textContent = "Camera is ready. Take up to 10 photos.";
+        } catch (error) {
+            takeButton.disabled = true;
+            status.textContent =
+                "Camera access is required. Please allow camera permission and try again.";
+            console.error(error);
+        }
+    }
+
+    function renderPreview() {
+        preview.innerHTML = "";
+
+        capturedPhotos.forEach((file, index) => {
+            const wrapper = document.createElement("div");
+            const img = document.createElement("img");
+            const label = document.createElement("div");
+
+            img.src = URL.createObjectURL(file);
+            img.onload = () => URL.revokeObjectURL(img.src);
+            label.textContent = "Photo " + (index + 1);
+
+            wrapper.appendChild(img);
+            wrapper.appendChild(label);
+            preview.appendChild(wrapper);
+        });
+
+        status.textContent =
+            capturedPhotos.length + " photo(s) captured. " +
+            (capturedPhotos.length < 10 ? "You can take more." : "Maximum reached.");
+    }
+
+    takeButton.addEventListener("click", () => {
+        if (!stream) return;
+
+        if (capturedPhotos.length >= 10) {
+            status.textContent = "Maximum 10 photos reached.";
+            return;
+        }
+
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+
+        if (!width || !height) {
+            status.textContent = "Camera is not ready yet. Please try again.";
+            return;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                status.textContent = "Unable to capture photo. Please try again.";
+                return;
+            }
+
+            const file = new File(
+                [blob],
+                "camera_" + Date.now() + ".jpg",
+                { type: "image/jpeg" }
+            );
+
+            capturedPhotos.push(file);
+
+            const dataTransfer = new DataTransfer();
+            capturedPhotos.forEach(photo => dataTransfer.items.add(photo));
+            fileInput.files = dataTransfer.files;
+
+            renderPreview();
+        }, "image/jpeg", 0.9);
+    });
+
+    startButton.addEventListener("click", startCamera);
+
+    form.addEventListener("submit", (event) => {
+        if (capturedPhotos.length === 0) {
+            event.preventDefault();
+            status.textContent = "Please take at least one photo using the camera.";
+            return;
+        }
+
+        const dataTransfer = new DataTransfer();
+        capturedPhotos.forEach(photo => dataTransfer.items.add(photo));
+        fileInput.files = dataTransfer.files;
+    });
+
+    window.addEventListener("beforeunload", () => {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+    });
+})();
+</script>
 
 </body>
 
